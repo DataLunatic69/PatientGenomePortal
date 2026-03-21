@@ -5,6 +5,9 @@ description = "Patient-facing genomic portal using AlphaGenome, LangGraph, and G
 readme = "README.md"
 requires-python = ">=3.13"
 
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
 dependencies = [
     # ── AlphaGenome ─────────────────────────────────────────────────────────
     "alphagenome>=0.6.0",
