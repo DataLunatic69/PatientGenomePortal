@@ -1,0 +1,94 @@
+[project]
+name = "patientgenomeportal"
+version = "0.1.0"
+description = "Patient-facing genomic portal using AlphaGenome, LangGraph, and Gemini"
+readme = "README.md"
+requires-python = ">=3.13"
+
+dependencies = [
+    # ── AlphaGenome ─────────────────────────────────────────────────────────
+    "alphagenome>=0.6.0",
+
+    # ── FastAPI + server ─────────────────────────────────────────────────────
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "python-multipart>=0.0.12",      # file uploads
+    "sse-starlette>=2.1.0",          # server-sent events for job streaming
+
+    # ── LangGraph + LangChain ────────────────────────────────────────────────
+    "langgraph>=0.2.0",
+    "langchain-core>=0.3.0",
+    "langchain-google-genai>=2.0.0", # Gemini via LangChain
+
+    # ── Google Gemini (direct SDK) ───────────────────────────────────────────
+    "google-generativeai>=0.8.0",
+
+    # ── Data & genomics ──────────────────────────────────────────────────────
+    "pandas>=2.2.0",
+    "numpy>=2.0.0",
+    "pyarrow>=17.0.0",               # feather / parquet for GTF files
+    "biopython>=1.84",               # VCF / FASTA parsing utilities
+    "cyvcf2>=0.31.0",                # fast VCF parsing for 23andMe files
+
+    # ── Database ─────────────────────────────────────────────────────────────
+    "sqlalchemy>=2.0.0",
+    "asyncpg>=0.30.0",               # async Postgres driver
+    "alembic>=1.13.0",               # schema migrations
+
+    # ── Redis / job queue ────────────────────────────────────────────────────
+    "redis>=5.1.0",
+    "arq>=0.26.0",                   # async job queue backed by Redis
+
+    # ── Object storage (S3-compatible) ───────────────────────────────────────
+    "boto3>=1.35.0",                 # S3 for raw DNA file storage
+    "aioboto3>=13.0.0",              # async wrapper
+
+    # ── Auth & security ──────────────────────────────────────────────────────
+    "python-jose[cryptography]>=3.3.0",  # JWT signing/verification
+    "passlib[bcrypt]>=1.7.4",            # password hashing
+    "httpx>=0.27.0",                     # OAuth2 flows + internal HTTP
+
+    # ── Config & validation ──────────────────────────────────────────────────
+    "pydantic>=2.9.0",
+    "pydantic-settings>=2.5.0",      # .env / environment variable management
+
+    # ── Serialization / reporting ────────────────────────────────────────────
+    "orjson>=3.10.0",                # fast JSON for large score DataFrames
+    "jinja2>=3.1.0",                 # HTML report templates
+    "weasyprint>=62.0",              # PDF report generation
+
+    # ── Observability ────────────────────────────────────────────────────────
+    "structlog>=24.4.0",             # structured logging
+    "sentry-sdk[fastapi]>=2.14.0",   # error tracking
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=5.0.0",
+    "httpx>=0.27.0",                 # TestClient for FastAPI
+    "ruff>=0.6.0",                   # linting + formatting
+    "mypy>=1.11.0",                  # type checking
+    "ipykernel>=6.29.0",             # notebook support for local exploration
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
