@@ -19,9 +19,11 @@ class DnaFile(SQLModel, table=True):
     user_id: UUID = Field(foreign_key="users.id", index=True)
     original_filename: str = Field(max_length=255)
     source: DnaFileSource
-    storage_path: str = Field(max_length=512)   # Supabase storage path
+    storage_path: str = Field(max_length=512)    # Supabase storage path
     file_size_bytes: int | None = None
-    uploaded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    uploaded_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
     parsed_at: datetime | None = None
     total_variants_parsed: int | None = None
 
@@ -30,5 +32,5 @@ class DnaFile(SQLModel, table=True):
     analysis_jobs: list["AnalysisJob"] = Relationship(back_populates="dna_file")
 
 
-from .user import User  # noqa: E402
-from .analysis_job import AnalysisJob  # noqa: E402
+from app.database.models.user import User  # noqa: E402
+from app.database.models.analysis_job import AnalysisJob  # noqa: E402

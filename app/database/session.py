@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlmodel import SQLModel
 
-from ..config import settings
+from app.config import settings
 
 
 engine = create_async_engine(
@@ -27,7 +27,8 @@ AsyncSessionLocal = async_sessionmaker(
 
 
 async def init_db() -> None:
-    """Create all tables. Use Alembic in production."""
+    """Create all tables. Use Alembic in production instead."""
+    import app.database.models  # noqa: F401 — ensure models are registered
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
 
