@@ -1,5 +1,5 @@
+from pydantic import PostgresDsn
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import PostgresDsn, RedisDsn
 
 
 class Settings(BaseSettings):
@@ -22,12 +22,12 @@ class Settings(BaseSettings):
     # ── Database (Supabase Postgres) ──────────────────────────────────────────
     database_url: PostgresDsn
 
-    # ── Redis ─────────────────────────────────────────────────────────────────
-    redis_url: RedisDsn = "redis://localhost:6379"  # type: ignore
+    # ── Redis (ARQ Worker) ────────────────────────────────────────────────────
+    redis_url: str = "redis://localhost:6379/0"
 
     # ── Supabase Storage ──────────────────────────────────────────────────────
     supabase_url: str
-    supabase_service_key: str                        # service role key (backend only)
+    supabase_service_key: str        # service role key — backend only
     supabase_bucket_name: str = "dna-files"
 
     # ── AlphaGenome ───────────────────────────────────────────────────────────
