@@ -10,6 +10,7 @@ from arq.connections import create_pool
 
 from sqlmodel import select
 
+from app.security.dependencies import get_current_user
 from app.api.schemas import DnaFileRead, UploadResponse
 from app.config import settings
 from app.database.models.analysis_job import AnalysisJob, JobStatus
@@ -40,11 +41,11 @@ def _detect_source(filename: str, content_preview: str) -> DnaFileSource:
     return DnaFileSource.RAW
 
 
-@router.post("/upload", response_model=UploadResponse, status_code=202)
+@router.post("", response_model=UploadResponse, status_code=202)
 async def upload_dna_file(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    user_id: uuid.UUID = Form(...),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> UploadResponse:
     """
@@ -52,6 +53,8 @@ async def upload_dna_file(
     Stores the file in Supabase storage and triggers the analysis pipeline.
     Returns a job_id for polling status.
     """
+    user_id = current_user.id
+    
     # Validate user exists
     user = await db.get(User, user_id)
     if not user:
