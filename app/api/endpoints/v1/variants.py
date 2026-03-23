@@ -1,18 +1,49 @@
 import uuid
+import json
 
+from google import genai
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import func, select
 
-from app.api.schemas import ReportRead, VariantResultPage, VariantResultRead
+from app.api.schemas import (
+    ReportRead,
+    VariantResultPage,
+    VariantResultRead,
+    ResultsChatRequest,
+    ResultsChatResponse,
+)
+from app.config import settings
 from app.database.models.analysis_job import AnalysisJob, JobStatus
 from app.database.models.variant_result import VariantResult
 from app.database.session import get_db
+from app.services.gemini import generate_with_retry
 
 logger = structlog.get_logger()
 
 router = APIRouter()
+
+CHAT_PROMPT = """\
+You are a careful patient-facing genomic assistant.
+Answer ONLY using the provided analysis context.
+Keep answers concise and easy to understand.
+If the context does not contain enough information, say so clearly.
+Never provide diagnosis or treatment instructions.
+Always recommend consulting a licensed genetic counselor or physician for clinical decisions.
+
+Patient report:
+{report}
+
+Top variant findings:
+{variants_json}
+
+Conversation so far:
+{history_json}
+
+Patient question:
+{question}
+"""
 
 
 @router.get("/{job_id}", response_model=VariantResultPage)
@@ -44,17 +75,17 @@ async def get_variants(
         query = query.where(VariantResult.gemini_risk_level == risk_level)
 
     # Total count
-    count_result = await db.exec(
+    count_result = await db.execute(
         select(func.count()).select_from(query.subquery())
     )
-    total = count_result.one()
+    total = count_result.scalar_one()
 
     # Paginated results ordered by rank
     offset = (page - 1) * page_size
-    result = await db.exec(
+    result = await db.execute(
         query.order_by(VariantResult.rank_position).offset(offset).limit(page_size)
     )
-    variants = result.all()
+    variants = result.scalars().all()
 
     return VariantResultPage(
         total=total,
@@ -82,12 +113,12 @@ async def get_report(
             detail=f"Job not completed yet (status: {job.status})",
         )
 
-    result = await db.exec(
+    result = await db.execute(
         select(VariantResult)
         .where(VariantResult.analysis_job_id == job_id)
         .order_by(VariantResult.rank_position)
     )
-    variants = result.all()
+    variants = result.scalars().all()
 
     high = sum(1 for v in variants if v.gemini_risk_level == "high")
     moderate = sum(1 for v in variants if v.gemini_risk_level == "moderate")
@@ -129,3 +160,73 @@ async def get_variant_tracks(
         "splicing_score": variant.splicing_score,
         "top_tissues_affected": variant.top_tissues_affected or [],
     }
+
+
+@router.post("/{job_id}/chat", response_model=ResultsChatResponse)
+async def chat_about_results(
+    job_id: uuid.UUID,
+    payload: ResultsChatRequest,
+    db: AsyncSession = Depends(get_db),
+) -> ResultsChatResponse:
+    """Answer patient questions grounded in completed job results."""
+    job = await db.get(AnalysisJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status != JobStatus.COMPLETED:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Job not completed yet (status: {job.status})",
+        )
+
+    result = await db.execute(
+        select(VariantResult)
+        .where(VariantResult.analysis_job_id == job_id)
+        .order_by(VariantResult.rank_position)
+        .limit(15)
+    )
+    top_variants = result.scalars().all()
+
+    variants_payload = [
+        {
+            "rank": v.rank_position,
+            "gene": v.gene_name,
+            "variant": f"{v.chromosome}:{v.position} {v.reference_bases}>{v.alternate_bases}",
+            "risk_level": v.gemini_risk_level,
+            "clinvar": v.clinvar_classification,
+            "summary": v.gemini_summary,
+            "top_tissues": v.top_tissues_affected,
+        }
+        for v in top_variants
+    ]
+
+    report_text = ""
+    if job.graph_state:
+        report_text = str(job.graph_state.get("gemini_report", ""))
+
+    history_payload = [
+        {"role": msg.role, "content": msg.content}
+        for msg in payload.history[-8:]
+        if msg.content.strip()
+    ]
+
+    prompt = CHAT_PROMPT.format(
+        report=report_text or "No report available.",
+        variants_json=json.dumps(variants_payload, ensure_ascii=False, indent=2),
+        history_json=json.dumps(history_payload, ensure_ascii=False, indent=2),
+        question=payload.message.strip(),
+    )
+
+    try:
+        client = genai.Client(api_key=settings.gemini_api_key)
+        answer = generate_with_retry(client, prompt)
+    except Exception as exc:
+        logger.exception("variants.chat_failed", job_id=str(job_id), error=str(exc))
+        raise HTTPException(status_code=502, detail="Failed to generate chat response")
+
+    if not answer:
+        answer = (
+            "I couldn't generate an answer from the current analysis context. "
+            "Please try rephrasing your question."
+        )
+
+    return ResultsChatResponse(answer=answer)
