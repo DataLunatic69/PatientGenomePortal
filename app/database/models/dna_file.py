@@ -22,7 +22,7 @@ class DnaFile(SQLModel, table=True):
     storage_path: str = Field(max_length=512)    # Supabase storage path
     file_size_bytes: int | None = None
     uploaded_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
+        default_factory=lambda: datetime.utcnow()
     )
     parsed_at: datetime | None = None
     total_variants_parsed: int | None = None

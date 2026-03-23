@@ -31,7 +31,7 @@ class AnalysisJob(SQLModel, table=True):
     progress_pct: int = Field(default=0, ge=0, le=100)
     error_message: str | None = None
 
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.utcnow())
     started_at: datetime | None = None
     completed_at: datetime | None = None
 
