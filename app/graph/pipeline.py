@@ -92,9 +92,9 @@ async def run_analysis(
         "run_analysis: graph complete",
         extra={
             "job_id": str(job_id),
-            "status": final_state.current_step,
-            "variants": len(final_state.ranked_variants),
-            "error": final_state.error,
+            "status": final_state.get("current_step", "failed"),
+            "variants": len(final_state.get("ranked_variants", [])),
+            "error": final_state.get("error", None),
         },
     )
 
