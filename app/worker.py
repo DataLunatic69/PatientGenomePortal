@@ -38,25 +38,38 @@ async def analysis_worker_task(
     dna_file_id_uuid = UUID(dna_file_id)
 
     async with AsyncSessionLocal() as session:
-        # Mark job as started
         job = await session.get(AnalysisJob, job_id_uuid)
         if not job:
             logger.error("job.not_found", job_id=job_id)
             return
-        job.started_at = datetime.now(timezone.utc)
+        job.started_at = datetime.utcnow()
         job.status = JobStatus.PARSING
+        job.current_step = JobStatus.PARSING.value
+        job.progress_pct = 5
         await session.commit()
 
         try:
+            start_graph_time = datetime.utcnow()
             final_state = await run_analysis(
                 job_id=job_id_uuid,
                 dna_file_id=dna_file_id_uuid,
                 storage_path=storage_path,
                 file_source=file_source,
             )
+            graph_duration = (datetime.utcnow() - start_graph_time).total_seconds()
+            logger.info("analysis.graph_complete", job_id=job_id, duration_seconds=graph_duration)
+
+            # final_state is a dict returned by LangGraph (dataclass → dict at ainvoke boundary)
+            pipeline_error: str | None = final_state.get("error")
+            ranked_variants = final_state.get("ranked_variants") or []
+            raw_snvs = final_state.get("raw_snvs") or []
+            gemini_report: str = final_state.get("gemini_report") or ""
+            progress_pct: int = final_state.get("progress_pct") or 100
+
+            start_db_time = datetime.utcnow()
 
             # Persist variant results
-            for v in final_state.ranked_variants:
+            for v in ranked_variants:
                 result = VariantResult(
                     analysis_job_id=job_id_uuid,
                     chromosome=v.snv.chromosome,
@@ -81,28 +94,46 @@ async def analysis_worker_task(
             # Update dna_file parsed metadata
             dna_file = await session.get(DnaFile, dna_file_id_uuid)
             if dna_file:
-                dna_file.parsed_at = datetime.now(timezone.utc)
-                dna_file.total_variants_parsed = len(final_state.raw_snvs)
+                dna_file.parsed_at = datetime.utcnow()
+                dna_file.total_variants_parsed = len(raw_snvs)
 
-            # Update job to completed or failed
+            # Update job status — always set explicitly, never derive from a string
             job = await session.get(AnalysisJob, job_id_uuid)
             if job:
-                job.status = final_state.current_step
-                job.progress_pct = final_state.progress_pct
-                job.error_message = final_state.error
-                job.completed_at = datetime.now(timezone.utc)
-                job.graph_state = {"ranked_count": len(final_state.ranked_variants), "gemini_report": final_state.gemini_report}
+                if pipeline_error:
+                    job.status = JobStatus.FAILED
+                    job.current_step = JobStatus.FAILED.value
+                    job.error_message = pipeline_error
+                else:
+                    job.status = JobStatus.COMPLETED
+                    job.current_step = JobStatus.COMPLETED.value
+                    job.error_message = None
+                job.progress_pct = progress_pct
+                job.completed_at = datetime.utcnow()
+                job.graph_state = {
+                    "ranked_count": len(ranked_variants),
+                    "gemini_report": gemini_report,
+                }
 
             await session.commit()
-            logger.info("analysis.complete", job_id=job_id)
+            db_duration = (datetime.utcnow() - start_db_time).total_seconds()
+            logger.info(
+                "analysis.complete",
+                job_id=job_id,
+                ranked_variants=len(ranked_variants),
+                has_error=bool(pipeline_error),
+                db_duration_seconds=db_duration,
+                total_duration_seconds=graph_duration + db_duration,
+            )
 
         except Exception as exc:
             logger.exception("analysis.failed", job_id=job_id)
             job = await session.get(AnalysisJob, job_id_uuid)
             if job:
                 job.status = JobStatus.FAILED
+                job.current_step = JobStatus.FAILED.value
                 job.error_message = str(exc)
-                job.completed_at = datetime.now(timezone.utc)
+                job.completed_at = datetime.utcnow()
             await session.commit()
             raise
 
