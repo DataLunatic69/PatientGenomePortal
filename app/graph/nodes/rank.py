@@ -64,6 +64,9 @@ def _compute_rank_score(variant: ScoredVariant) -> float:
 
 
 def rank_variants(state: AgentState) -> AgentState:
+    import time
+    start_time = time.perf_counter()
+    logger.info("rank_variants: starting node", extra={"job_id": state.job_id})
     """
     Node 4: Compute a composite rank score for each scored variant
     and sort descending (most concerning first).
@@ -72,7 +75,7 @@ def rank_variants(state: AgentState) -> AgentState:
         "rank_variants: starting",
         extra={"job_id": str(state.job_id), "count": len(state.scored_variants)},
     )
-    state.current_step = JobStatus.RANKING
+    state.current_step = JobStatus.RANKING.value
     state.progress_pct = 78
 
     if state.error or not state.scored_variants:
@@ -94,6 +97,7 @@ def rank_variants(state: AgentState) -> AgentState:
         extra={
             "job_id": str(state.job_id),
             "top_score": ranked[0].rank_score if ranked else 0,
+            "duration_seconds": time.perf_counter() - start_time,
         },
     )
     return state
