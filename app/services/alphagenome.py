@@ -55,6 +55,7 @@ def score_variant(
     )
     interval = variant.reference_interval.resize(SEQUENCE_LENGTH)
 
+    logger.info("Calling AlphaGenome score_variant", chromosome=chromosome, position=position, ref=reference_bases, alt=alternate_bases)
     raw = _get_client().score_variant(
         interval=interval,
         variant=variant,
