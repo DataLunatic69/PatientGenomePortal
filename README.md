@@ -15,7 +15,6 @@ Patient-facing web application for uploading consumer DNA data, running an autom
   <a href="app/assets/13549104_3840_2160_25fps.mp4">app/assets/13549104_3840_2160_25fps.mp4</a>.
 </video>
 
-If the video does not render in your viewer, open `app/assets/13549104_3840_2160_25fps.mp4` locally.
 
 ## Features
 
