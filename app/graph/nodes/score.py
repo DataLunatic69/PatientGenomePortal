@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 import pandas as pd
@@ -82,34 +83,10 @@ def _build_delta_scores_summary(df: pd.DataFrame) -> dict:
         }
     return summary
 
+async def _score_variant_async(snv, dna_model, seq_length, scorers):
+    loop = asyncio.get_running_loop()
 
-def score_variants(state: AgentState) -> AgentState:
-    """
-    Node 3: Score each filtered variant with AlphaGenome.
-    Uses score_variant() (fast, scalar) for all variants.
-    Computes splicing score, delta score summary, and top tissues.
-    """
-    logger.info(
-        "score_variants: starting",
-        extra={"job_id": str(state.job_id), "count": len(state.filtered_snvs)},
-    )
-    state.current_step = JobStatus.SCORING
-    state.progress_pct = 35
-
-    if state.error or not state.filtered_snvs:
-        return state
-
-    dna_model = dna_client.create(settings.alphagenome_api_key)
-    seq_length = SEQUENCE_LENGTH_MAP.get(settings.sequence_length,
-                                          SEQUENCE_LENGTH_MAP["1MB"])
-
-    # Use recommended scorers
-    scorers = list(variant_scorers.RECOMMENDED_VARIANT_SCORERS.values())
-
-    scored: list[ScoredVariant] = []
-    total = len(state.filtered_snvs)
-
-    for i, snv in enumerate(state.filtered_snvs):
+    def _do_score():
         try:
             variant = genome.Variant(
                 chromosome=snv.chromosome,
@@ -128,34 +105,82 @@ def score_variants(state: AgentState) -> AgentState:
             )
 
             df = variant_scorers.tidy_scores([raw_scores])
-
             clinvar: ClinVarRecord | None = snv.__dict__.pop("_clinvar", None)
 
-            scored.append(
-                ScoredVariant(
-                    snv=snv,
-                    clinvar=clinvar,
-                    delta_scores=_build_delta_scores_summary(df),
-                    splicing_score=_compute_splicing_score(df),
-                    top_tissues_affected=_extract_top_tissues(df),
-                )
+            return ScoredVariant(
+                snv=snv,
+                clinvar=clinvar,
+                delta_scores=_build_delta_scores_summary(df),
+                splicing_score=_compute_splicing_score(df),
+                top_tissues_affected=_extract_top_tissues(df),
             )
-
         except Exception as exc:
-            logger.warning(
-                f"score_variants: failed for {snv.variant_id} — {exc}"
-            )
-            # Include with empty scores so it still appears in results
-            scored.append(ScoredVariant(snv=snv))
+            logger.warning(f"score_variants: failed for {snv.variant_id} — {exc}")
+            clinvar = snv.__dict__.pop("_clinvar", None)
+            return ScoredVariant(snv=snv, clinvar=clinvar)
 
-        # Update progress: 35 → 75 across all variants
-        state.progress_pct = 35 + int(((i + 1) / total) * 40)
+    return await loop.run_in_executor(None, _do_score)
+
+
+def score_variants(state: AgentState) -> AgentState:
+    import time
+    start_time = time.perf_counter()
+    """
+    Node 3: Score each filtered variant with AlphaGenome.
+    Uses score_variant() (fast, scalar) for all variants.
+    Computes splicing score, delta score summary, and top tissues.
+    """
+    logger.info(
+        "score_variants: starting",
+        extra={"job_id": str(state.job_id), "count": len(state.filtered_snvs)},
+    )
+    state.current_step = JobStatus.SCORING.value
+    state.progress_pct = 35
+
+    if state.error or not state.filtered_snvs:
+        return state
+
+    try:
+        dna_model = dna_client.create(settings.alphagenome_api_key)
+    except Exception as exc:
+        logger.error(f"score_variants: failed to initialise AlphaGenome client — {exc}")
+        state.error = f"AlphaGenome client initialisation failed: {exc}"
+        return state
+
+    seq_length = SEQUENCE_LENGTH_MAP.get(settings.sequence_length, SEQUENCE_LENGTH_MAP["1MB"])
+    scorers = list(variant_scorers.RECOMMENDED_VARIANT_SCORERS.values())
+    scored: list[ScoredVariant] = []
+
+    async def _run_scoring():
+        total = len(state.filtered_snvs)
+        batch_size = 5  # AlphaGenome API concurrency limit
+
+        for i in range(0, total, batch_size):
+            batch = state.filtered_snvs[i:i + batch_size]
+            tasks = [
+                _score_variant_async(snv, dna_model, seq_length, scorers)
+                for snv in batch
+            ]
+            # return_exceptions=True so a single failure never aborts the whole batch
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for snv, res in zip(batch, results):
+                if isinstance(res, Exception):
+                    logger.warning(f"score_variants: batch task failed for {snv.variant_id} — {res}")
+                    clinvar = snv.__dict__.pop("_clinvar", None)
+                    scored.append(ScoredVariant(snv=snv, clinvar=clinvar))
+                else:
+                    scored.append(res)
+
+            state.progress_pct = 35 + int(((i + len(batch)) / total) * 40)
+
+    # LangGraph runs sync nodes in a thread pool, so asyncio.run() is safe here
+    asyncio.run(_run_scoring())
 
     state.scored_variants = scored
     state.progress_pct = 75
 
     logger.info(
         "score_variants: complete",
-        extra={"job_id": str(state.job_id), "scored": len(scored)},
+        extra={"job_id": str(state.job_id), "scored": len(scored), "duration_seconds": time.perf_counter() - start_time},
     )
     return state
