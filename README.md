@@ -115,6 +115,4 @@ With `debug=true` in settings, OpenAPI docs are available at `/docs` and `/redoc
 
 This software is for research and educational use. Outputs are informational and not medical diagnoses or treatment recommendations. Users should consult licensed genetic counselors and physicians for clinical decisions.
 
-## License
 
-Add a `LICENSE` file to the repository if you intend to distribute or publish this project.
