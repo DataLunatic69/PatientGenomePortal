@@ -20,42 +20,45 @@ def _download_file(storage_path: str) -> bytes:
     return response
 
 
+def _split_line(line: str) -> list[str]:
+    """
+    Split a data line by commas (CSV) or whitespace (TSV/space-delimited).
+    Strips surrounding whitespace and quotes from each field.
+    """
+    if "," in line:
+        return [f.strip().strip('"').strip("'") for f in line.split(",")]
+    return line.split()
+
+
 def _parse_23andme(content: str) -> list[SNV]:
     """
     Parse 23andMe raw data format.
-    Format: rsid  chromosome  position  genotype
-    Lines starting with # are comments.
+    Supports both whitespace-delimited (standard export) and
+    comma-separated (CSV export) with columns:
+        rsid  chromosome  position  genotype
+    Lines starting with # are comments; header lines are skipped automatically
+    because int(position) will fail on the literal string "position".
     """
     snvs: list[SNV] = []
     lines = [l for l in content.splitlines() if not l.startswith("#") and l.strip()]
 
     for line in lines:
-        parts = line.split("\t")
+        parts = _split_line(line)
         if len(parts) < 4:
             continue
 
         rsid, chrom, pos_str, genotype = parts[0], parts[1], parts[2], parts[3]
 
-        # Normalize chromosome format
         if not chrom.startswith("chr"):
             chrom = f"chr{chrom}"
 
         try:
             position = int(pos_str)
         except ValueError:
-            continue
+            continue  # skip header or non-numeric rows
 
-        # 23andMe genotype is two bases e.g. "AG" — treat as REF=first, ALT=second
-        # Skip indels (--) and no-calls (--)
-        if len(genotype) != 2 or "-" in genotype:
-            continue
-
-        ref = genotype[0]
-        alt = genotype[1]
-
-        # Skip homozygous ref (not a variant)
-        if ref == alt:
-            continue
+        ref = genotype[0] if len(genotype) > 0 else "N"
+        alt = genotype[1] if len(genotype) > 1 else ref
 
         snvs.append(
             SNV(
@@ -72,14 +75,15 @@ def _parse_23andme(content: str) -> list[SNV]:
 
 def _parse_vcf(content: str) -> list[SNV]:
     """
-    Parse standard VCF format.
+    Parse standard VCF format (tab or space delimited).
     Columns: CHROM POS ID REF ALT QUAL FILTER INFO ...
+    Lines starting with # are comments / header.
     """
     snvs: list[SNV] = []
     lines = [l for l in content.splitlines() if not l.startswith("#") and l.strip()]
 
     for line in lines:
-        parts = line.split("\t")
+        parts = _split_line(line)
         if len(parts) < 5:
             continue
 
@@ -95,12 +99,7 @@ def _parse_vcf(content: str) -> list[SNV]:
         except ValueError:
             continue
 
-        # Handle multi-allelic sites — take first ALT only for now
         alt = alt_field.split(",")[0]
-
-        # Skip non-SNVs (indels, structural variants)
-        if len(ref) != 1 or len(alt) != 1:
-            continue
 
         snvs.append(
             SNV(
@@ -116,6 +115,8 @@ def _parse_vcf(content: str) -> list[SNV]:
 
 
 def parse_dna_file(state: AgentState) -> AgentState:
+    import time
+    start_time = time.perf_counter()
     """
     Node 1: Download DNA file from Supabase and parse into SNV list.
     Handles 23andMe and VCF formats.
@@ -149,7 +150,7 @@ def parse_dna_file(state: AgentState) -> AgentState:
         state.progress_pct = 15
         logger.info(
             "parse_dna_file: complete",
-            extra={"job_id": str(state.job_id), "total_snvs": len(snvs)},
+            extra={"job_id": str(state.job_id), "total_snvs": len(snvs), "duration_seconds": time.perf_counter() - start_time},
         )
 
     except Exception as exc:
