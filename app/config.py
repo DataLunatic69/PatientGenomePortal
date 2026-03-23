@@ -15,6 +15,12 @@ class Settings(BaseSettings):
     debug: bool = False
     allowed_origins: list[str] = ["http://localhost:3000"]
 
+
+    # ── JWT Authentication ────────────────────────────────────────────────────
+    JWT_SECRET_KEY: str = "super_secret_key_12345_change_in_production"
+    JWT_ALGORITHM: str = "HS256"
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+
     # ── API Keys ──────────────────────────────────────────────────────────────
     alphagenome_api_key: str
     gemini_api_key: str
