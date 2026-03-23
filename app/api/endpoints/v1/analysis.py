@@ -47,16 +47,15 @@ async def stream_job_status(
         last_pct = -1
 
         while True:
-            # Re-fetch job from DB each tick
-            await db.refresh(await db.get(AnalysisJob, job_id))
+            # Single expunge+get to force a fresh DB read each tick
+            db.expire_all()
             job = await db.get(AnalysisJob, job_id)
 
             if not job:
                 yield _sse_event({"error": "Job not found"})
                 break
 
-            # Only emit if something changed
-            if job.progress_pct != last_pct:
+            if job.progress_pct != last_pct or job.status in TERMINAL_STATUSES:
                 last_pct = job.progress_pct
                 payload = JobStatusUpdate(
                     job_id=job_id,
