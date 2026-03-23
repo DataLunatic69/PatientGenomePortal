@@ -1,11 +1,12 @@
 import json
 import logging
 
-import google.generativeai as genai
+from google import genai
 
 from app.config import settings
 from app.database.models.analysis_job import JobStatus
 from app.graph.state import AgentState, ScoredVariant
+from app.services.gemini import generate_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +89,9 @@ def _risk_level(rank_score: float) -> str:
 
 
 def explain_variants(state: AgentState) -> AgentState:
+    import time
+    start_time = time.perf_counter()
+    logger.info("explain_variants: starting node", extra={"job_id": state.job_id})
     """
     Node 5: Use Gemini to generate plain-language explanations for each
     top variant and a full patient report.
@@ -96,14 +100,15 @@ def explain_variants(state: AgentState) -> AgentState:
         "explain_variants: starting",
         extra={"job_id": str(state.job_id)},
     )
-    state.current_step = JobStatus.EXPLAINING
+    state.current_step = JobStatus.EXPLAINING.value
     state.progress_pct = 85
 
     if state.error or not state.ranked_variants:
+        state.current_step = JobStatus.COMPLETED.value
+        state.progress_pct = 100
         return state
 
-    genai.configure(api_key=settings.gemini_api_key)
-    model = genai.GenerativeModel("gemini-1.5-pro")
+    client = genai.Client(api_key=settings.gemini_api_key)
 
     # Explain top N variants individually
     top_variants = state.ranked_variants[: settings.max_variants_to_visualize]
@@ -114,8 +119,7 @@ def explain_variants(state: AgentState) -> AgentState:
             prompt = VARIANT_PROMPT.format(
                 variant_json=json.dumps(variant_dict, indent=2)
             )
-            response = model.generate_content(prompt)
-            variant.gemini_summary = response.text.strip()
+            variant.gemini_summary = generate_with_retry(client, prompt)
             variant.gemini_risk_level = _risk_level(variant.rank_score)
 
         except Exception as exc:
@@ -134,8 +138,7 @@ def explain_variants(state: AgentState) -> AgentState:
             n=len(top_variants),
             variants_json=json.dumps(variants_for_report, indent=2),
         )
-        report_response = model.generate_content(report_prompt)
-        state.gemini_report = report_response.text.strip()
+        state.gemini_report = generate_with_retry(client, report_prompt)
 
     except Exception as exc:
         logger.warning(f"explain_variants: report generation failed: {exc}")
@@ -145,11 +148,11 @@ def explain_variants(state: AgentState) -> AgentState:
         )
 
     state.ranked_variants = top_variants
-    state.current_step = JobStatus.COMPLETED
+    state.current_step = JobStatus.COMPLETED.value
     state.progress_pct = 100
 
     logger.info(
         "explain_variants: complete",
-        extra={"job_id": str(state.job_id)},
+        extra={"job_id": str(state.job_id), "duration_seconds": time.perf_counter() - start_time},
     )
     return state
