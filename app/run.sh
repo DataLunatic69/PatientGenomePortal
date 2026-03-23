@@ -1,11 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ── Load .env if it exists (dev convenience) ──────────────────────────────────
-if [ -f ".env" ]; then
-  export $(grep -v '^#' .env | xargs)
-fi
-
 MODE="${1:-dev}"
 
 case "$MODE" in
