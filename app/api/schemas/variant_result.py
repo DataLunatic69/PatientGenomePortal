@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 from uuid import UUID
 from datetime import datetime
@@ -33,3 +33,17 @@ class VariantResultPage(BaseModel):
     page: int
     page_size: int
     items: list[VariantResultRead]
+
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+
+class ResultsChatRequest(BaseModel):
+    message: str
+    history: list[ChatMessage] = Field(default_factory=list)
+
+
+class ResultsChatResponse(BaseModel):
+    answer: str
