@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     app_name: str = "Patient Genome Portal"
     app_version: str = "0.1.0"
     debug: bool = False
-    allowed_origins: list[str] = ["http://localhost:3000"]
+    allowed_origins: list[str] = ["*"]
 
 
     # ── JWT Authentication ────────────────────────────────────────────────────
