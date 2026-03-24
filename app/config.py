@@ -1,6 +1,6 @@
 import json
 
-from pydantic import PostgresDsn, computed_field
+from pydantic import Field, PostgresDsn
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,6 +12,9 @@ def _parse_cors_origins(raw: str) -> list[str]:
     - ["https://a.com","https://b.com"]
     """
     value = (raw or "").strip()
+    # Mis-pasted env line used as the value (e.g. ALLOWED_ORIGINS=ALLOWED_ORIGINS = [...])
+    if "ALLOWED_ORIGINS" in value:
+        return ["*"]
     if not value:
         return ["*"]
     if value == "*":
@@ -33,19 +36,24 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        # Empty ALLOWED_ORIGINS on Render must not be JSON-decoded as a list
+        env_ignore_empty=True,
     )
 
     # ── App ───────────────────────────────────────────────────────────────────
     app_name: str = "Patient Genome Portal"
     app_version: str = "0.1.0"
     debug: bool = False
-    # String so ALLOWED_ORIGINS=* or comma-separated works (list[str] breaks on Render)
-    allowed_origins: str = "*"
+    # Plain str + alias: pydantic-settings must not treat this as JSON (list/dict).
+    # Do not use @computed_field for cors_origins — list[str] is loaded via json.loads from env.
+    allowed_origins_raw: str = Field(
+        default="*",
+        validation_alias="ALLOWED_ORIGINS",
+    )
 
-    @computed_field
     @property
     def cors_origins(self) -> list[str]:
-        return _parse_cors_origins(self.allowed_origins)
+        return _parse_cors_origins(self.allowed_origins_raw)
 
 
     # ── JWT Authentication ────────────────────────────────────────────────────
