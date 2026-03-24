@@ -1,5 +1,5 @@
 import UploadCard from '../components/upload/UploadCard';
-import { Activity, Dna } from 'lucide-react';
+import { Dna } from 'lucide-react';
 
 export default function UploadPage() {
   return (

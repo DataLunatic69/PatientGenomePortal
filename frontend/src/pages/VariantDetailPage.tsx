@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link, useLocation } from 'react-router-dom';
-import { api } from '../lib/api';
 import type { VariantResultRead } from '../types/api';
 import { ArrowLeft, AlertTriangle } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/card';
@@ -11,7 +10,7 @@ export default function VariantDetailPage() {
   const location = useLocation();
   const stateVariant = location.state?.variant as VariantResultRead | undefined;
   
-  const [variant, setVariant] = useState<VariantResultRead | null>(stateVariant || null);
+  const [variant] = useState<VariantResultRead | null>(stateVariant || null);
 
   useEffect(() => {
     // If we have state variant, we don't necessarily need to fetch unless we want full tracks
