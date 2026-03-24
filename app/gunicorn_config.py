@@ -1,7 +1,10 @@
 import multiprocessing
+import os
 
 # ── Server socket ─────────────────────────────────────────────────────────────
-bind = "0.0.0.0:8000"
+# Render, Fly.io, etc. set PORT; default 8000 for local/production scripts
+_port = os.environ.get("PORT", "8000")
+bind = f"0.0.0.0:{_port}"
 backlog = 2048
 
 # ── Workers ───────────────────────────────────────────────────────────────────
